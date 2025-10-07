@@ -50,6 +50,13 @@ const Project = () => {
 
     const [ isAiTyping, setIsAiTyping ] = useState(false)
 
+    // Voice: speech recognition & recording
+    const [ isListening, setIsListening ] = useState(false)
+    const recognitionRef = useRef(null)
+    const [ isRecording, setIsRecording ] = useState(false)
+    const mediaRecorderRef = useRef(null)
+    const recordedChunksRef = useRef([])
+
     const handleUserClick = (id) => {
         setSelectedUserId(prevSelectedUserId => {
             const newSelectedUserId = new Set(prevSelectedUserId);
@@ -128,9 +135,10 @@ const Project = () => {
 
         sendMessage('project-message', {
             message,
-            sender: user
+            sender: user,
+            messageType: 'text'
         })
-        setMessages(prevMessages => [ ...prevMessages, { sender: user, message } ]) // Update messages state
+        setMessages(prevMessages => [ ...prevMessages, { sender: user, message, messageType: 'text' } ])
         setMessage("")
 
     }
@@ -183,12 +191,20 @@ const Project = () => {
                 if (message.fileTree) {
                     setFileTree(message.fileTree || {})
                 }
-                setMessages(prevMessages => [ ...prevMessages, data ]) // Update messages state
+                // Speak AI text
+                try {
+                    const utter = new SpeechSynthesisUtterance(message.text)
+                    utter.rate = 1
+                    window.speechSynthesis.cancel()
+                    window.speechSynthesis.speak(utter)
+                } catch (e) { }
+
+                setMessages(prevMessages => [ ...prevMessages, data ])
                 setIsAiTyping(false)
             } else {
 
 
-                setMessages(prevMessages => [ ...prevMessages, data ]) // Update messages state
+                setMessages(prevMessages => [ ...prevMessages, data ])
             }
         })
 
@@ -220,8 +236,83 @@ const Project = () => {
         messageBox.current.scrollTop = messageBox.current.scrollHeight
     }
 
+    // Voice: STT
+    function toggleListening() {
+        try {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+            if (!SpeechRecognition) return;
+            if (!recognitionRef.current) {
+                const rec = new SpeechRecognition()
+                rec.lang = 'en-US'
+                rec.interimResults = true
+                rec.continuous = true
+                rec.onresult = (event) => {
+                    let interim = ''
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const transcript = event.results[i][0].transcript
+                        if (event.results[i].isFinal) {
+                            setMessage(prev => (prev ? prev + ' ' : '') + transcript)
+                        } else {
+                            interim += transcript
+                        }
+                    }
+                }
+                rec.onend = () => setIsListening(false)
+                recognitionRef.current = rec
+            }
+            if (isListening) {
+                recognitionRef.current.stop()
+                setIsListening(false)
+            } else {
+                recognitionRef.current.start()
+                setIsListening(true)
+            }
+        } catch (e) { }
+    }
+
+    // Voice: Recording
+    async function startRecording() {
+        try {
+            if (isRecording) return;
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            const mr = new MediaRecorder(stream)
+            recordedChunksRef.current = []
+            mr.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data)
+            }
+            mr.onstop = async () => {
+                const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
+                const reader = new FileReader()
+                reader.onloadend = () => {
+                    const base64 = reader.result // data URL
+                    sendMessage('project-message', {
+                        message: '[voice message]',
+                        sender: user,
+                        messageType: 'audio',
+                        audio: base64
+                    })
+                    setMessages(prev => [ ...prev, { sender: user, message: '[voice message]', messageType: 'audio', audio: base64 } ])
+                }
+                reader.readAsDataURL(blob)
+            }
+            mediaRecorderRef.current = mr
+            mr.start()
+            setIsRecording(true)
+        } catch (e) { }
+    }
+
+    function stopRecording() {
+        try {
+            if (mediaRecorderRef.current && isRecording) {
+                mediaRecorderRef.current.stop()
+                mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop())
+                setIsRecording(false)
+            }
+        } catch (e) { }
+    }
+
     return (
-        <main className='h-screen w-screen flex'>
+        <main className='fixed inset-0 h-screen w-screen flex'>
             <section className="left relative flex flex-col h-screen min-w-96 bg-[#0F0F10] text-white">
                 <header className='flex items-center justify-between p-3 px-4 w-full bg-[#151517] border-b border-[#202023] sticky top-0 z-10'>
                     <div className='flex items-center gap-2'>
@@ -273,7 +364,14 @@ const Project = () => {
                                 onChange={(e) => setMessage(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
                                 className='bg-transparent placeholder-zinc-500 text-zinc-100 border-none outline-none flex-grow text-sm' type="text" placeholder='Hi, can I help you?' />
-                            <button className='text-zinc-400 hover:text-zinc-200'><i className="ri-emotion-line"></i></button>
+                            <button
+                                onClick={toggleListening}
+                                onMouseDown={startRecording}
+                                onMouseUp={stopRecording}
+                                title={isRecording ? 'Recording...' : (isListening ? 'Listening...' : 'Voice')}
+                                className={`${isRecording ? 'text-red-400' : (isListening ? 'text-amber-400' : 'text-zinc-400')} hover:text-zinc-200`}>
+                                <i className="ri-mic-line"></i>
+                            </button>
                         </div>
                         <button
                             onClick={send}
