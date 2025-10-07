@@ -18,7 +18,7 @@ const io = new Server(server, {
 
 io.use(async (socket, next) => {
     try {
-        const projectId = socket.handshake.query.projectId;
+        const projectId = socket.handshake.query.projectId || 'default';
         socket.project = { _id: projectId };
         socket.user = { userId: 'default' };
         next();
@@ -29,7 +29,7 @@ io.use(async (socket, next) => {
 
 
 io.on('connection', socket => {
-    socket.roomId = socket.project._id.toString()
+    socket.roomId = (socket.project && socket.project._id ? String(socket.project._id) : 'default')
 
 
     console.log('a user connected');

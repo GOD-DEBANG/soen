@@ -1,5 +1,5 @@
 import socket from 'socket.io-client';
-
+    socket(import.meta.env.VITE_API_URL, { /* ... */ })
 
 let socketInstance = null;
 

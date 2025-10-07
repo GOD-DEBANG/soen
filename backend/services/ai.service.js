@@ -10,7 +10,7 @@ function getModel() {
     if (!model) {
         const genAI = new GoogleGenerativeAI(key);
         model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: "gemini-1.5-flash-latest",
             generationConfig: {
                 responseMimeType: "application/json",
                 temperature: 0.4,

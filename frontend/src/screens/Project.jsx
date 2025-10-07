@@ -27,6 +27,7 @@ function SyntaxHighlightedCode(props) {
 const Project = () => {
 
     const location = useLocation()
+    const navigate = useNavigate()
 
     const [ isSidePanelOpen, setIsSidePanelOpen ] = useState(false)
     const [ isModalOpen, setIsModalOpen ] = useState(false)
@@ -91,6 +92,7 @@ const Project = () => {
 
         const lowerMessage = message.toLowerCase();
 
+        // Open currently running webcontainer app
         if (lowerMessage.includes("open the app") || lowerMessage.includes("open app")) {
             if (iframeUrl) {
                 window.open(iframeUrl, '_blank');
@@ -103,29 +105,99 @@ const Project = () => {
             }
         }
 
-        // Check for opening specific apps
-        if (lowerMessage.startsWith("open ")) {
-            const appName = lowerMessage.replace("open ", "").trim();
-            const appSchemes = {
-                "calculator": "calculator://",
-                "camera": "camera://",
-                "maps": "maps://",
-                "phone": "tel://",
-                "email": "mailto://",
-                "google": "https://google.com",
-                "youtube": "https://youtube.com",
-            };
-            if (appSchemes[appName]) {
-                try {
-                    window.open(appSchemes[appName], '_blank');
-                    setMessage("");
-                    return;
-                } catch (e) {
-                    alert(`Unable to open ${appName}. It may not be available on this device.`);
-                    setMessage("");
-                    return;
-                }
+        // Natural language: open <app> (native) or open web <site>
+        if (lowerMessage.startsWith("open ") || lowerMessage.startsWith("open web ")) {
+            const isWeb = lowerMessage.startsWith("open web ");
+            const name = lowerMessage.replace(isWeb ? "open web " : "open ", "").trim();
+
+            if (isWeb) {
+                // Simple web open: try direct known map, else search
+                const webMap = {
+                    "google": "https://www.google.com",
+                    "youtube": "https://www.youtube.com",
+                    "github": "https://github.com",
+                    "gmail": "https://mail.google.com",
+                    "maps": "https://maps.google.com",
+                };
+                const url = webMap[ name ] || `https://www.google.com/search?q=${encodeURIComponent(name)}`;
+                window.open(url, '_blank');
+                setMessage("");
+                return;
             }
+
+            // Native apps: try app link / scheme first, then fallback to store by OS
+            const os = (() => {
+                const ua = navigator.userAgent.toLowerCase();
+                if (/android/.test(ua)) return 'android';
+                if (/iphone|ipad|ipod/.test(ua)) return 'ios';
+                if (/win/.test(ua)) return 'windows';
+                if (/mac/.test(ua)) return 'mac';
+                return 'web';
+            })();
+
+            // Registry of popular apps
+            const registry = {
+                youtube: {
+                    android: { scheme: 'vnd.youtube://', store: 'market://details?id=com.google.android.youtube' },
+                    ios: { scheme: 'youtube://', store: 'https://apps.apple.com/app/id544007664' },
+                    windows: { scheme: 'https://www.youtube.com', store: 'https://www.microsoft.com/store/apps' },
+                    mac: { scheme: 'https://www.youtube.com', store: 'https://apps.apple.com/us/genre/mac/id39' },
+                },
+                whatsapp: {
+                    android: { scheme: 'whatsapp://', store: 'market://details?id=com.whatsapp' },
+                    ios: { scheme: 'whatsapp://', store: 'https://apps.apple.com/app/id310633997' },
+                    windows: { scheme: 'whatsapp://', store: 'https://www.microsoft.com/store/apps' },
+                    mac: { scheme: 'whatsapp://', store: 'https://apps.apple.com/app/id1147396723' },
+                },
+                maps: {
+                    android: { scheme: 'geo:0,0?q=', store: 'market://details?id=com.google.android.apps.maps' },
+                    ios: { scheme: 'maps://', store: 'https://apps.apple.com/app/id915056765' },
+                    windows: { scheme: 'bingmaps:', store: 'https://www.microsoft.com/store/apps' },
+                    mac: { scheme: 'maps://', store: 'https://apps.apple.com/genre/ios/id36' },
+                },
+                phone: {
+                    android: { scheme: 'tel:', store: 'market://details?id=com.google.android.dialer' },
+                    ios: { scheme: 'tel:', store: 'https://apps.apple.com/genre/ios/id36' },
+                    windows: { scheme: 'tel:', store: 'https://www.microsoft.com/store/apps' },
+                    mac: { scheme: 'tel:', store: 'https://apps.apple.com/genre/mac/id39' },
+                },
+                email: {
+                    android: { scheme: 'mailto:', store: 'market://details?id=com.google.android.gm' },
+                    ios: { scheme: 'mailto:', store: 'https://apps.apple.com/genre/ios/id36' },
+                    windows: { scheme: 'mailto:', store: 'https://www.microsoft.com/store/apps' },
+                    mac: { scheme: 'mailto:', store: 'https://apps.apple.com/genre/mac/id39' },
+                },
+            };
+
+            const key = name.replace(/\s+/g, '').toLowerCase();
+            const entry = registry[ key ];
+            if (entry && entry[ os ]) {
+                const { scheme, store } = entry[ os ];
+                // Try to open scheme; if blocked or not installed, open store fallback shortly after
+                const timer = setTimeout(() => {
+                    if (store) window.open(store, '_blank');
+                }, 1200);
+                try {
+                    window.open(scheme, '_blank');
+                } catch (e) {
+                    clearTimeout(timer);
+                    if (store) window.open(store, '_blank');
+                }
+                setMessage("");
+                return;
+            }
+
+            // Unknown native app → send to platform store search
+            const storeSearch = os === 'android'
+                ? `https://play.google.com/store/search?q=${encodeURIComponent(name)}`
+                : os === 'ios'
+                    ? `https://apps.apple.com/us/search?term=${encodeURIComponent(name)}`
+                    : os === 'windows'
+                        ? `https://www.microsoft.com/store/search?q=${encodeURIComponent(name)}`
+                        : `https://www.google.com/search?q=${encodeURIComponent(name)}`;
+            window.open(storeSearch, '_blank');
+            setMessage("");
+            return;
         }
 
         const isAiMessage = message.includes('@ai');
@@ -313,16 +385,19 @@ const Project = () => {
 
     return (
         <main className='fixed inset-0 h-screen w-screen flex'>
-            <section className="left relative flex flex-col h-screen min-w-96 bg-[#0F0F10] text-white">
-                <header className='flex items-center justify-between p-3 px-4 w-full bg-[#151517] border-b border-[#202023] sticky top-0 z-10'>
+            <section className="left relative flex flex-col h-screen w-full bg-[#0B0B0C] text-white">
+                {/* Glow backdrop */}
+                <div className='pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 h-80 w-[42rem] rounded-full opacity-40 blur-[90px]'
+                    style={{ background: 'radial-gradient(ellipse at center, #7C3AED 10%, #4F46E5 40%, transparent 70%)' }} />
+                <header className='relative flex items-center justify-between p-4 px-5 w-full bg-[#101013]/70 backdrop-blur border-b border-[#1C1C20] sticky top-0 z-10'>
                     <div className='flex items-center gap-2'>
-                        <span className='inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-400 text-black font-semibold'>
+                        <span className='inline-flex items-center justify-center w-8 h-8 rounded-full bg-purple-500 text-white shadow-lg shadow-purple-500/30'>
                             <i className="ri-robot-2-fill"></i>
                         </span>
-                        <p className='font-semibold'>Chat</p>
+                        <p className='font-semibold tracking-wide'>Chat</p>
                     </div>
                     <div className='flex items-center gap-2'>
-                        <button className='text-amber-400 hover:text-amber-300' onClick={() => setIsModalOpen(true)} title='Add collaborator'>
+                        <button className='text-purple-400 hover:text-purple-300' onClick={() => setIsModalOpen(true)} title='Add collaborator'>
                             <i className="ri-user-add-line"></i>
                         </button>
                         <button onClick={() => setIsSidePanelOpen(!isSidePanelOpen)} className='text-zinc-300 hover:text-white' title='Collaborators'>
@@ -330,19 +405,21 @@ const Project = () => {
                         </button>
                     </div>
                 </header>
-                <div className="conversation-area pb-20 flex-grow flex flex-col h-full relative">
+                <div className="conversation-area pb-28 flex-grow flex flex-col h-full relative">
 
                     <div
                         ref={messageBox}
-                        className="message-box p-3 flex-grow flex flex-col gap-2 overflow-auto max-h-full scrollbar-hide">
+                        className="message-box p-4 flex-grow flex flex-col gap-3 overflow-auto max-h-full scrollbar-hide">
                         {messages.map((msg, index) => {
                             const isAi = msg.sender._id === 'ai';
                             const isSelf = msg.sender._id == user._id.toString();
                             return (
-                                <div key={index} className={`message flex flex-col w-fit ${isSelf ? 'ml-auto items-end' : 'items-start'}`}>
-                                    <small className='opacity-60 text-[10px] mb-1'>{msg.sender.email}</small>
-                                    <div className={`${isAi ? 'bg-[#1E1F22] text-zinc-100' : 'bg-[#2A2B2F] text-zinc-100'} ${isSelf && '!bg-amber-400 !text-black'} rounded-2xl px-4 py-3 max-w-[70%] leading-relaxed shadow-sm`}>
-                                        {isAi ? WriteAiMessage(msg.message) : <p>{msg.message}</p>}
+                                <div key={index} className={`w-full flex ${isSelf ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`message flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}>
+                                        <small className='opacity-60 text-[10px] mb-1'>{msg.sender.email}</small>
+                                        <div className={`${isAi ? 'bg-white/5' : 'bg-white/7'} ${isSelf && '!bg-purple-500/90 !text-white'} text-zinc-100 backdrop-blur-md border border-white/10 rounded-2xl px-5 py-3 max-w-[70%] leading-relaxed shadow-[0_10px_30px_-10px_rgba(124,58,237,0.35)]`}>
+                                            {isAi ? WriteAiMessage(msg.message) : <p>{msg.message}</p>}
+                                        </div>
                                     </div>
                                 </div>
                             )
@@ -351,31 +428,38 @@ const Project = () => {
                             <div className='flex items-center gap-2 text-xs text-zinc-400'>
                                 <span className='inline-flex w-2 h-2 rounded-full bg-zinc-500 animate-pulse'></span>
                                 AI is typing...
-                                <button className='ml-2 text-[11px] px-2 py-1 rounded-full bg-[#1E1F22] text-zinc-300 hover:text-white'>Stop Generation</button>
+                                <button className='ml-2 text-[11px] px-2 py-1 rounded-full bg-white/5 border border-white/10 text-zinc-300 hover:text-white'>Stop Generation</button>
                             </div>
                         )}
                     </div>
 
-                    <div className="inputField w-full flex items-center gap-2 px-3 py-3 bg-[#0F0F10] border-t border-[#202023] absolute bottom-0">
-                        <div className='flex items-center gap-2 flex-grow bg-[#17181A] border border-[#24252A] rounded-full px-3 py-2'>
-                            <button className='text-zinc-400 hover:text-zinc-200'><i className="ri-attachment-2"></i></button>
+                    {/* Floating input */}
+                    <div className="inputField w-full flex items-center justify-center px-3 py-4 absolute bottom-2">
+                        <div className='flex items-center gap-2 w-full max-w-3xl bg-white/5 backdrop-blur-md border border-white/10 rounded-full px-4 py-2 shadow-[0_10px_30px_-10px_rgba(124,58,237,0.35)]'>
+                            <button className='text-zinc-300 hover:text-white'><i className="ri-attachment-2"></i></button>
                             <input
                                 value={message}
                                 onChange={(e) => setMessage(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
-                                className='bg-transparent placeholder-zinc-500 text-zinc-100 border-none outline-none flex-grow text-sm' type="text" placeholder='Hi, can I help you?' />
+                                className='bg-transparent placeholder-zinc-500 text-zinc-100 border-none outline-none flex-grow text-sm' type="text" placeholder='Type your message...' />
                             <button
                                 onClick={toggleListening}
                                 onMouseDown={startRecording}
                                 onMouseUp={stopRecording}
                                 title={isRecording ? 'Recording...' : (isListening ? 'Listening...' : 'Voice')}
-                                className={`${isRecording ? 'text-red-400' : (isListening ? 'text-amber-400' : 'text-zinc-400')} hover:text-zinc-200`}>
+                                className={`${isRecording ? 'text-red-400' : (isListening ? 'text-purple-400' : 'text-zinc-400')} hover:text-zinc-200`}>
                                 <i className="ri-mic-line"></i>
+                            </button>
+                            <button
+                                onClick={() => navigate('/developer')}
+                                title='Developer'
+                                className='text-zinc-400 hover:text-white'>
+                                <i className="ri-code-s-slash-line"></i>
                             </button>
                         </div>
                         <button
                             onClick={send}
-                            className='w-10 h-10 rounded-full bg-amber-400 text-black flex items-center justify-center shadow hover:bg-amber-300'>
+                            className='ml-2 w-11 h-11 rounded-full bg-purple-500 text-white flex items-center justify-center shadow-lg shadow-purple-500/30 hover:bg-purple-400'>
                             <i className="ri-send-plane-2-fill"></i>
                         </button>
                     </div>
@@ -409,145 +493,6 @@ const Project = () => {
                         })}
                     </div>
                 </div>
-            </section>
-
-            <section className="right  bg-red-50 flex-grow h-full flex">
-
-                <div className="explorer h-full max-w-64 min-w-52 bg-slate-200">
-                    <div className="file-tree w-full">
-                        {
-                            Object.keys(fileTree).map((file, index) => (
-                                <button
-                                    key={index}
-                                    onClick={() => {
-                                        setCurrentFile(file)
-                                        setOpenFiles([ ...new Set([ ...openFiles, file ]) ])
-                                    }}
-                                    className="tree-element cursor-pointer p-2 px-4 flex items-center gap-2 bg-slate-300 w-full">
-                                    <p
-                                        className='font-semibold text-lg'
-                                    >{file}</p>
-                                </button>))
-
-                        }
-                    </div>
-
-                </div>
-
-
-                <div className="code-editor flex flex-col flex-grow h-full shrink">
-
-                    <div className="top flex justify-between w-full">
-
-                        <div className="files flex">
-                            {
-                                openFiles.map((file, index) => (
-                                    <button
-                                        key={index}
-                                        onClick={() => setCurrentFile(file)}
-                                        className={`open-file cursor-pointer p-2 px-4 flex items-center w-fit gap-2 bg-slate-300 ${currentFile === file ? 'bg-slate-400' : ''}`}>
-                                        <p
-                                            className='font-semibold text-lg'
-                                        >{file}</p>
-                                    </button>
-                                ))
-                            }
-                        </div>
-
-                        <div className="actions flex gap-2">
-                            <button
-                                onClick={async () => {
-                                    await webContainer.mount(fileTree)
-
-
-                                    const installProcess = await webContainer.spawn("npm", [ "install" ])
-
-
-
-                                    installProcess.output.pipeTo(new WritableStream({
-                                        write(chunk) {
-                                            console.log(chunk)
-                                        }
-                                    }))
-
-                                    if (runProcess) {
-                                        runProcess.kill()
-                                    }
-
-                                    let tempRunProcess = await webContainer.spawn("npm", [ "start" ]);
-
-                                    tempRunProcess.output.pipeTo(new WritableStream({
-                                        write(chunk) {
-                                            console.log(chunk)
-                                        }
-                                    }))
-
-                                    setRunProcess(tempRunProcess)
-
-                                    webContainer.on('server-ready', (port, url) => {
-                                        console.log(port, url)
-                                        setIframeUrl(url)
-                                    })
-
-                                }}
-                                className='p-2 px-4 bg-slate-300 text-white'
-                            >
-                                run
-                            </button>
-
-
-                        </div>
-                    </div>
-                    <div className="bottom flex flex-grow max-w-full shrink overflow-auto">
-                        {
-                            fileTree[ currentFile ] && (
-                                <div className="code-editor-area h-full overflow-auto flex-grow bg-slate-50">
-                                    <pre
-                                        className="hljs h-full">
-                                        <code
-                                            className="hljs h-full outline-none"
-                                            contentEditable
-                                            suppressContentEditableWarning
-                                            onBlur={(e) => {
-                                                const updatedContent = e.target.innerText;
-                                                const ft = {
-                                                    ...fileTree,
-                                                    [ currentFile ]: {
-                                                        file: {
-                                                            contents: updatedContent
-                                                        }
-                                                    }
-                                                }
-                                                setFileTree(ft)
-                                                saveFileTree(ft)
-                                            }}
-                                            dangerouslySetInnerHTML={{ __html: hljs.highlight('javascript', fileTree[ currentFile ].file.contents).value }}
-                                            style={{
-                                                whiteSpace: 'pre-wrap',
-                                                paddingBottom: '25rem',
-                                                counterSet: 'line-numbering',
-                                            }}
-                                        />
-                                    </pre>
-                                </div>
-                            )
-                        }
-                    </div>
-
-                </div>
-
-                {iframeUrl && webContainer &&
-                    (<div className="flex min-w-96 flex-col h-full">
-                        <div className="address-bar">
-                            <input type="text"
-                                onChange={(e) => setIframeUrl(e.target.value)}
-                                value={iframeUrl} className="w-full p-2 px-4 bg-slate-200" />
-                        </div>
-                        <iframe src={iframeUrl} className="w-full h-full"></iframe>
-                    </div>)
-                }
-
-
             </section>
 
             {isModalOpen && (
