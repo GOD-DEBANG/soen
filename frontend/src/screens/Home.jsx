@@ -7,7 +7,7 @@ const Home = () => {
 
     const { user } = useContext(UserContext)
     const [ isModalOpen, setIsModalOpen ] = useState(false)
-    const [ projectName, setProjectName ] = useState(null)
+    const [ projectName, setProjectName ] = useState('')
     const [ project, setProject ] = useState([])
 
     const navigate = useNavigate()
@@ -16,30 +16,38 @@ const Home = () => {
         e.preventDefault()
         console.log({ projectName })
 
-        axios.post('/projects/create', {
+        const newProject = {
+            _id: Date.now().toString(),
             name: projectName,
-        })
-            .then((res) => {
-                console.log(res)
-                setIsModalOpen(false)
-            })
-            .catch((error) => {
-                console.log(error)
-            })
+            users: [user ? user._id : 'default'],
+            fileTree: {}
+        }
+
+        const existingProjects = JSON.parse(localStorage.getItem('projects') || '[]')
+        const updatedProjects = [...existingProjects, newProject]
+        localStorage.setItem('projects', JSON.stringify(updatedProjects))
+        setProject(updatedProjects)
+        setIsModalOpen(false)
+        setProjectName('')
     }
 
     useEffect(() => {
-        axios.get('/projects/all').then((res) => {
-            setProject(res.data.projects)
-
-        }).catch(err => {
-            console.log(err)
-        })
-
+        const storedProjects = localStorage.getItem('projects')
+        if (storedProjects) {
+            setProject(JSON.parse(storedProjects))
+        }
     }, [])
 
     return (
         <main className='p-4'>
+            <header className='flex items-center justify-between mb-4'>
+                <h1 className='text-xl font-semibold'>Projects</h1>
+                <button
+                    onClick={() => navigate('/developer')}
+                    className='px-3 py-1.5 rounded-full bg-amber-400 text-black text-sm font-medium hover:bg-amber-300'>
+                    Developer
+                </button>
+            </header>
             <div className="projects flex flex-wrap gap-3">
                 <button
                     onClick={() => setIsModalOpen(true)}

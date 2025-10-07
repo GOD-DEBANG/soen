@@ -48,6 +48,8 @@ const Project = () => {
 
     const [ runProcess, setRunProcess ] = useState(null)
 
+    const [ isAiTyping, setIsAiTyping ] = useState(false)
+
     const handleUserClick = (id) => {
         setSelectedUserId(prevSelectedUserId => {
             const newSelectedUserId = new Set(prevSelectedUserId);
@@ -66,20 +68,63 @@ const Project = () => {
 
     function addCollaborators() {
 
-        axios.put("/projects/add-user", {
-            projectId: location.state.project._id,
-            users: Array.from(selectedUserId)
-        }).then(res => {
-            console.log(res.data)
-            setIsModalOpen(false)
+        const updatedProject = { ...project, users: [...new Set([...project.users, ...Array.from(selectedUserId)])] }
+        setProject(updatedProject)
 
-        }).catch(err => {
-            console.log(err)
-        })
+        // Update localStorage
+        const projects = JSON.parse(localStorage.getItem('projects') || '[]')
+        const updatedProjects = projects.map(p => p._id === project._id ? updatedProject : p)
+        localStorage.setItem('projects', JSON.stringify(updatedProjects))
+
+        setIsModalOpen(false)
 
     }
 
     const send = () => {
+
+        const lowerMessage = message.toLowerCase();
+
+        if (lowerMessage.includes("open the app") || lowerMessage.includes("open app")) {
+            if (iframeUrl) {
+                window.open(iframeUrl, '_blank');
+                setMessage("");
+                return;
+            } else {
+                alert("App is not running. Please run the project first.");
+                setMessage("");
+                return;
+            }
+        }
+
+        // Check for opening specific apps
+        if (lowerMessage.startsWith("open ")) {
+            const appName = lowerMessage.replace("open ", "").trim();
+            const appSchemes = {
+                "calculator": "calculator://",
+                "camera": "camera://",
+                "maps": "maps://",
+                "phone": "tel://",
+                "email": "mailto://",
+                "google": "https://google.com",
+                "youtube": "https://youtube.com",
+            };
+            if (appSchemes[appName]) {
+                try {
+                    window.open(appSchemes[appName], '_blank');
+                    setMessage("");
+                    return;
+                } catch (e) {
+                    alert(`Unable to open ${appName}. It may not be available on this device.`);
+                    setMessage("");
+                    return;
+                }
+            }
+        }
+
+        const isAiMessage = message.includes('@ai');
+        if (isAiMessage) {
+            setIsAiTyping(true);
+        }
 
         sendMessage('project-message', {
             message,
@@ -120,11 +165,12 @@ const Project = () => {
             })
         }
 
+        setFileTree(project.fileTree || {})
 
         receiveMessage('project-message', data => {
 
             console.log(data)
-            
+
             if (data.sender._id == 'ai') {
 
 
@@ -138,20 +184,12 @@ const Project = () => {
                     setFileTree(message.fileTree || {})
                 }
                 setMessages(prevMessages => [ ...prevMessages, data ]) // Update messages state
+                setIsAiTyping(false)
             } else {
 
 
                 setMessages(prevMessages => [ ...prevMessages, data ]) // Update messages state
             }
-        })
-
-
-        axios.get(`/projects/get-project/${location.state.project._id}`).then(res => {
-
-            console.log(res.data.project)
-
-            setProject(res.data.project)
-            setFileTree(res.data.project.fileTree || {})
         })
 
         axios.get('/users/all').then(res => {
@@ -167,14 +205,12 @@ const Project = () => {
     }, [])
 
     function saveFileTree(ft) {
-        axios.put('/projects/update-file-tree', {
-            projectId: project._id,
-            fileTree: ft
-        }).then(res => {
-            console.log(res.data)
-        }).catch(err => {
-            console.log(err)
-        })
+        const updatedProject = { ...project, fileTree: ft }
+        setProject(updatedProject)
+
+        const projects = JSON.parse(localStorage.getItem('projects') || '[]')
+        const updatedProjects = projects.map(p => p._id === project._id ? updatedProject : p)
+        localStorage.setItem('projects', JSON.stringify(updatedProjects))
     }
 
 
@@ -186,41 +222,64 @@ const Project = () => {
 
     return (
         <main className='h-screen w-screen flex'>
-            <section className="left relative flex flex-col h-screen min-w-96 bg-slate-300">
-                <header className='flex justify-between items-center p-2 px-4 w-full bg-slate-100 absolute z-10 top-0'>
-                    <button className='flex gap-2' onClick={() => setIsModalOpen(true)}>
-                        <i className="ri-add-fill mr-1"></i>
-                        <p>Add collaborator</p>
-                    </button>
-                    <button onClick={() => setIsSidePanelOpen(!isSidePanelOpen)} className='p-2'>
-                        <i className="ri-group-fill"></i>
-                    </button>
+            <section className="left relative flex flex-col h-screen min-w-96 bg-[#0F0F10] text-white">
+                <header className='flex items-center justify-between p-3 px-4 w-full bg-[#151517] border-b border-[#202023] sticky top-0 z-10'>
+                    <div className='flex items-center gap-2'>
+                        <span className='inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-400 text-black font-semibold'>
+                            <i className="ri-robot-2-fill"></i>
+                        </span>
+                        <p className='font-semibold'>Chat</p>
+                    </div>
+                    <div className='flex items-center gap-2'>
+                        <button className='text-amber-400 hover:text-amber-300' onClick={() => setIsModalOpen(true)} title='Add collaborator'>
+                            <i className="ri-user-add-line"></i>
+                        </button>
+                        <button onClick={() => setIsSidePanelOpen(!isSidePanelOpen)} className='text-zinc-300 hover:text-white' title='Collaborators'>
+                            <i className="ri-group-fill"></i>
+                        </button>
+                    </div>
                 </header>
-                <div className="conversation-area pt-14 pb-10 flex-grow flex flex-col h-full relative">
+                <div className="conversation-area pb-20 flex-grow flex flex-col h-full relative">
 
                     <div
                         ref={messageBox}
-                        className="message-box p-1 flex-grow flex flex-col gap-1 overflow-auto max-h-full scrollbar-hide">
-                        {messages.map((msg, index) => (
-                            <div key={index} className={`${msg.sender._id === 'ai' ? 'max-w-80' : 'max-w-52'} ${msg.sender._id == user._id.toString() && 'ml-auto'}  message flex flex-col p-2 bg-slate-50 w-fit rounded-md`}>
-                                <small className='opacity-65 text-xs'>{msg.sender.email}</small>
-                                <div className='text-sm'>
-                                    {msg.sender._id === 'ai' ?
-                                        WriteAiMessage(msg.message)
-                                        : <p>{msg.message}</p>}
+                        className="message-box p-3 flex-grow flex flex-col gap-2 overflow-auto max-h-full scrollbar-hide">
+                        {messages.map((msg, index) => {
+                            const isAi = msg.sender._id === 'ai';
+                            const isSelf = msg.sender._id == user._id.toString();
+                            return (
+                                <div key={index} className={`message flex flex-col w-fit ${isSelf ? 'ml-auto items-end' : 'items-start'}`}>
+                                    <small className='opacity-60 text-[10px] mb-1'>{msg.sender.email}</small>
+                                    <div className={`${isAi ? 'bg-[#1E1F22] text-zinc-100' : 'bg-[#2A2B2F] text-zinc-100'} ${isSelf && '!bg-amber-400 !text-black'} rounded-2xl px-4 py-3 max-w-[70%] leading-relaxed shadow-sm`}>
+                                        {isAi ? WriteAiMessage(msg.message) : <p>{msg.message}</p>}
+                                    </div>
                                 </div>
+                            )
+                        })}
+                        {isAiTyping && (
+                            <div className='flex items-center gap-2 text-xs text-zinc-400'>
+                                <span className='inline-flex w-2 h-2 rounded-full bg-zinc-500 animate-pulse'></span>
+                                AI is typing...
+                                <button className='ml-2 text-[11px] px-2 py-1 rounded-full bg-[#1E1F22] text-zinc-300 hover:text-white'>Stop Generation</button>
                             </div>
-                        ))}
+                        )}
                     </div>
 
-                    <div className="inputField w-full flex absolute bottom-0">
-                        <input
-                            value={message}
-                            onChange={(e) => setMessage(e.target.value)}
-                            className='p-2 px-4 border-none outline-none flex-grow' type="text" placeholder='Enter message' />
+                    <div className="inputField w-full flex items-center gap-2 px-3 py-3 bg-[#0F0F10] border-t border-[#202023] absolute bottom-0">
+                        <div className='flex items-center gap-2 flex-grow bg-[#17181A] border border-[#24252A] rounded-full px-3 py-2'>
+                            <button className='text-zinc-400 hover:text-zinc-200'><i className="ri-attachment-2"></i></button>
+                            <input
+                                value={message}
+                                onChange={(e) => setMessage(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+                                className='bg-transparent placeholder-zinc-500 text-zinc-100 border-none outline-none flex-grow text-sm' type="text" placeholder='Hi, can I help you?' />
+                            <button className='text-zinc-400 hover:text-zinc-200'><i className="ri-emotion-line"></i></button>
+                        </div>
                         <button
                             onClick={send}
-                            className='px-5 bg-slate-950 text-white'><i className="ri-send-plane-fill"></i></button>
+                            className='w-10 h-10 rounded-full bg-amber-400 text-black flex items-center justify-center shadow hover:bg-amber-300'>
+                            <i className="ri-send-plane-2-fill"></i>
+                        </button>
                     </div>
                 </div>
                 <div className={`sidePanel w-full h-full flex flex-col gap-2 bg-slate-50 absolute transition-all ${isSidePanelOpen ? 'translate-x-0' : '-translate-x-full'} top-0`}>

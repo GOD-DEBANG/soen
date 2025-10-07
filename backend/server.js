@@ -2,12 +2,9 @@ import 'dotenv/config';
 import http from 'http';
 import app from './app.js';
 import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
-import mongoose from 'mongoose';
-import projectModel from './models/project.model.js';
 import { generateResult } from './services/ai.service.js';
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 
 
 
@@ -20,40 +17,15 @@ const io = new Server(server, {
 
 
 io.use(async (socket, next) => {
-
     try {
-
-        const token = socket.handshake.auth?.token || socket.handshake.headers.authorization?.split(' ')[ 1 ];
         const projectId = socket.handshake.query.projectId;
-
-        if (!mongoose.Types.ObjectId.isValid(projectId)) {
-            return next(new Error('Invalid projectId'));
-        }
-
-
-        socket.project = await projectModel.findById(projectId);
-
-
-        if (!token) {
-            return next(new Error('Authentication error'))
-        }
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-        if (!decoded) {
-            return next(new Error('Authentication error'))
-        }
-
-
-        socket.user = decoded;
-
+        socket.project = { _id: projectId };
+        socket.user = { userId: 'default' };
         next();
-
     } catch (error) {
-        next(error)
+        next(error);
     }
-
-})
+});
 
 
 io.on('connection', socket => {
@@ -75,20 +47,29 @@ io.on('connection', socket => {
 
         if (aiIsPresentInMessage) {
 
+            try {
+                const prompt = message.replace('@ai', '');
 
-            const prompt = message.replace('@ai', '');
+                const result = await generateResult(prompt);
+                console.log('AI Result:', result);
 
-            const result = await generateResult(prompt);
-
-
-            io.to(socket.roomId).emit('project-message', {
-                message: result,
-                sender: {
-                    _id: 'ai',
-                    email: 'AI'
-                }
-            })
-
+                io.to(socket.roomId).emit('project-message', {
+                    message: result,
+                    sender: {
+                        _id: 'ai',
+                        email: 'AI'
+                    }
+                })
+            } catch (error) {
+                console.error('AI Error:', error);
+                io.to(socket.roomId).emit('project-message', {
+                    message: JSON.stringify({ text: 'Sorry, I encountered an error. Please try again.' }),
+                    sender: {
+                        _id: 'ai',
+                        email: 'AI'
+                    }
+                })
+            }
 
             return
         }
